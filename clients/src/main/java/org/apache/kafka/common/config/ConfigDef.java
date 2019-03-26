@@ -400,7 +400,7 @@ public class ConfigDef {
      * @param name              The name of the config parameter
      * @param type              The type of the config
      * @param defaultValue      The default value to use if this config isn't present
-     * @param importance
+     * @param importance        TODO add missing documentation
      * @return This ConfigDef so you can chain calls
      */
     public ConfigDef defineInternal(final String name, final Type type, final Object defaultValue, final Importance importance) {

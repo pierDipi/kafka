@@ -375,11 +375,12 @@ public class ProducerConfig extends AbstractConfig {
             newConfigs.put(VALUE_SERIALIZER_CLASS_CONFIG, valueSerializer.getClass());
         return newConfigs;
     }
-
+    // TODO optimize properties
+    // TODO remove duplicate code
     public static Properties addSerializerToConfig(Properties properties,
                                                    Serializer<?> keySerializer,
                                                    Serializer<?> valueSerializer) {
-        Properties newProperties = new Properties();
+        Properties newProperties = new Properties(properties.size());
         newProperties.putAll(properties);
         if (keySerializer != null)
             newProperties.put(KEY_SERIALIZER_CLASS_CONFIG, keySerializer.getClass().getName());

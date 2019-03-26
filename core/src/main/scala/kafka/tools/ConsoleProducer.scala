@@ -42,6 +42,7 @@ object ConsoleProducer {
         reader.init(System.in, getReaderProps(config))
 
         val producer = new KafkaProducer[Array[Byte], Array[Byte]](producerProps(config))
+        producer.toString
 
         Runtime.getRuntime.addShutdownHook(new Thread() {
           override def run() {

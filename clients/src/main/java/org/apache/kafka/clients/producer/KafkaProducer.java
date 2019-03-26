@@ -1304,4 +1304,9 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                 this.userCallback.onCompletion(metadata, exception);
         }
     }
+
+    public String toString() {
+        log.error(("producer configs " + producerConfig.));
+        return null;
+    }
 }
