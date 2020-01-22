@@ -18,6 +18,9 @@ package org.apache.kafka.streams.kstream.internals.suppress;
 
 import org.apache.kafka.common.Metric;
 import org.apache.kafka.common.MetricName;
+import org.apache.kafka.common.metrics.MetricConfig;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.kstream.Suppressed;
@@ -26,18 +29,18 @@ import org.apache.kafka.streams.kstream.internals.KTableImpl;
 import org.apache.kafka.streams.processor.Processor;
 import org.apache.kafka.streams.processor.StateStore;
 import org.apache.kafka.streams.processor.TaskId;
+import org.apache.kafka.streams.processor.internals.InternalProcessorContext;
 import org.apache.kafka.streams.processor.internals.ProcessorNode;
+import org.apache.kafka.streams.processor.internals.ProcessorRecordContext;
+import org.apache.kafka.streams.processor.internals.metrics.StreamsMetricsImpl;
 import org.apache.kafka.streams.state.internals.InMemoryTimeOrderedKeyValueBuffer;
-import org.apache.kafka.test.MockInternalProcessorContext;
-import org.apache.kafka.test.StreamsTestUtils;
-import org.apache.kafka.test.TestUtils;
+import org.apache.kafka.test.InternalProcessorContextMockBuilder;
 import org.easymock.EasyMock;
 import org.hamcrest.Matcher;
 import org.junit.Test;
 
 import java.time.Duration;
 import java.util.Map;
-import java.util.Properties;
 
 import static org.apache.kafka.common.utils.Utils.mkEntry;
 import static org.apache.kafka.common.utils.Utils.mkMap;
@@ -49,7 +52,6 @@ import static org.hamcrest.core.Is.is;
 public class KTableSuppressProcessorMetricsTest {
     private static final long ARBITRARY_LONG = 5L;
     private static final TaskId TASK_ID = new TaskId(0, 0);
-    private Properties streamsConfig = StreamsTestUtils.getStreamsConfig();
     private final String threadId = Thread.currentThread().getName();
 
     private final MetricName evictionTotalMetric0100To24 = new MetricName(
@@ -234,16 +236,20 @@ public class KTableSuppressProcessorMetricsTest {
                 mock
             ).get();
 
-        streamsConfig.setProperty(StreamsConfig.BUILT_IN_METRICS_VERSION_CONFIG, builtInMetricsVersion);
-        final MockInternalProcessorContext context =
-            new MockInternalProcessorContext(streamsConfig, TASK_ID, TestUtils.tempDirectory());
-        context.setCurrentNode(new ProcessorNode("testNode"));
+        final InternalProcessorContext context = new InternalProcessorContextMockBuilder()
+                .metrics(new StreamsMetricsImpl(
+                        new Metrics(new MetricConfig().recordLevel(Sensor.RecordingLevel.DEBUG)),
+                        threadId,
+                        builtInMetricsVersion
+                ))
+                .build();
+        context.setCurrentNode(new ProcessorNode<>("testNode"));
 
         buffer.init(context, buffer);
         processor.init(context);
 
         final long timestamp = 100L;
-        context.setRecordMetadata("", 0, 0L, null, timestamp);
+        context.setRecordContext(new ProcessorRecordContext(timestamp, 0L, 0, "", null));
         final String key = "longKey";
         final Change<Long> value = new Change<>(null, ARBITRARY_LONG);
         processor.process(key, value);
@@ -276,7 +282,7 @@ public class KTableSuppressProcessorMetricsTest {
             }
         }
 
-        context.setRecordMetadata("", 0, 1L, null, timestamp + 1);
+        context.setRecordContext(new ProcessorRecordContext(timestamp + 1, 1L, 0, "", null));
         processor.process("key", value);
 
         {
