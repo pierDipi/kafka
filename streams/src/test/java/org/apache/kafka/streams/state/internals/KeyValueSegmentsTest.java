@@ -19,9 +19,10 @@ package org.apache.kafka.streams.state.internals;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.streams.processor.internals.InternalProcessorContext;
 import org.apache.kafka.streams.processor.internals.MockStreamsMetrics;
-import org.apache.kafka.test.InternalMockProcessorContext;
-import org.apache.kafka.test.MockRecordCollector;
+import org.apache.kafka.streams.processor.internals.metrics.StreamsMetricsImpl;
+import org.apache.kafka.test.InternalProcessorContextMockBuilder;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -47,7 +48,7 @@ public class KeyValueSegmentsTest {
     private static final long SEGMENT_INTERVAL = 100L;
     private static final long RETENTION_PERIOD = 4 * SEGMENT_INTERVAL;
     private static final String METRICS_SCOPE = "test-state-id";
-    private InternalMockProcessorContext context;
+    private InternalProcessorContext context;
     private KeyValueSegments segments;
     private File stateDirectory;
     private final String storeName = "test";
@@ -55,13 +56,13 @@ public class KeyValueSegmentsTest {
     @Before
     public void createContext() {
         stateDirectory = TestUtils.tempDirectory();
-        context = new InternalMockProcessorContext(
-            stateDirectory,
-            Serdes.String(),
-            Serdes.Long(),
-            new MockRecordCollector(),
-            new ThreadCache(new LogContext("testCache "), 0, new MockStreamsMetrics(new Metrics()))
-        );
+        final StreamsMetricsImpl metrics = new MockStreamsMetrics(new Metrics());
+        context = new InternalProcessorContextMockBuilder()
+                .stateDir(stateDirectory)
+                .valueSerde(Serdes.Long())
+                .metrics(metrics)
+                .cache(new ThreadCache(new LogContext("testCache "), 0, metrics))
+                .build();
         segments = new KeyValueSegments(storeName, METRICS_SCOPE, RETENTION_PERIOD, SEGMENT_INTERVAL);
     }
 
