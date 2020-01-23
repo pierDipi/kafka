@@ -153,6 +153,11 @@ public class InternalProcessorContextMockBuilder {
         return this;
     }
 
+    public InternalProcessorContextMockBuilder appConfigs(final StreamsConfig config) {
+        this.config = config;
+        return this;
+    }
+
     public InternalProcessorContextMockBuilder metrics(final StreamsMetricsImpl metrics) {
         this.metrics = metrics;
         return this;

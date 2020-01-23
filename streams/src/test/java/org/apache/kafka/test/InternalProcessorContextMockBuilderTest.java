@@ -234,8 +234,8 @@ public class InternalProcessorContextMockBuilderTest {
     @Test
     public void shouldFailOnScheduleWithoutProcessorContext() {
         assertThrows("processorContext must be set before use schedule() via constructor.",
-                IllegalStateException.class,
-                () -> new InternalProcessorContextMockBuilder().build().schedule(null, null, null));
+            IllegalStateException.class,
+            () -> new InternalProcessorContextMockBuilder().build().schedule(null, null, null));
     }
 
     @Test
@@ -327,8 +327,8 @@ public class InternalProcessorContextMockBuilderTest {
     @Test
     public void shouldFailOnCommitWithoutProcessorContext() {
         assertThrows("processorContext must be set before use commit() via constructor.",
-                IllegalStateException.class,
-                () -> new InternalProcessorContextMockBuilder().build().commit());
+            IllegalStateException.class,
+            () -> new InternalProcessorContextMockBuilder().build().commit());
     }
 
     @Test
@@ -441,7 +441,7 @@ public class InternalProcessorContextMockBuilderTest {
 
     @Test
     public void shouldNotFailWithNoConfigs() {
-        new InternalProcessorContextMockBuilder().appConfigs(null).build();
+        new InternalProcessorContextMockBuilder().appConfigs((Map<String, Object>) null).build();
     }
 
     @Test
