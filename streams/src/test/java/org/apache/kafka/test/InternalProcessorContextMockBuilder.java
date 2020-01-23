@@ -34,6 +34,7 @@ import org.apache.kafka.streams.processor.To;
 import org.apache.kafka.streams.processor.internals.InternalProcessorContext;
 import org.apache.kafka.streams.processor.internals.ProcessorNode;
 import org.apache.kafka.streams.processor.internals.ProcessorRecordContext;
+import org.apache.kafka.streams.processor.internals.RecordCollector;
 import org.apache.kafka.streams.processor.internals.ToInternal;
 import org.apache.kafka.streams.processor.internals.metrics.StreamsMetricsImpl;
 import org.apache.kafka.streams.processor.internals.metrics.TaskMetrics;
@@ -43,6 +44,7 @@ import org.easymock.Capture;
 import org.easymock.EasyMock;
 
 import java.io.File;
+import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
@@ -227,6 +229,23 @@ public class InternalProcessorContextMockBuilder {
         buildWithoutReplaying();
         replay(mock);
         return mock;
+    }
+
+    private interface ContextCollectorSupplier extends InternalProcessorContext, RecordCollector.Supplier { }
+
+    public static InternalProcessorContext withCollectorSupplier(final InternalProcessorContext context,
+                                                                 final RecordCollector recordCollector,
+                                                                 final Class<?> clazz) {
+        return (InternalProcessorContext) Proxy.newProxyInstance(
+            clazz.getClassLoader(),
+            new Class[]{ContextCollectorSupplier.class},
+            (o, method, objects) -> {
+                if (method.getName().equals("recordCollector")) {
+                    return recordCollector;
+                }
+                return InternalProcessorContext.class.getMethod(method.getName(), method.getParameterTypes())
+                        .invoke(context, objects);
+            });
     }
 
     private void uninitialize() {
