@@ -25,7 +25,6 @@ import org.apache.kafka.streams.state.StoreBuilder;
 import org.apache.kafka.streams.state.Stores;
 import org.junit.Test;
 
-
 import java.util.Arrays;
 import java.util.List;
 
@@ -155,7 +154,7 @@ public class InMemoryLRUCacheStoreTest extends AbstractKeyValueStoreTest {
         // Create the store, which should register with the context and automatically
         // receive the restore entries ...
         store = createKeyValueStore(driver.context());
-        context.restore(store.name(), driver.restoredEntries());
+        driver.restore(store.name(), driver.restoredEntries());
         // Verify that the store's changelog does not get more appends ...
         assertEquals(0, driver.numFlushedEntryStored());
         assertEquals(0, driver.numFlushedEntryRemoved());

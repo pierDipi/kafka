@@ -55,7 +55,7 @@ public class InMemoryKeyValueStoreTest extends AbstractKeyValueStoreTest {
         driver.addEntryToRestoreLog(0, null);
 
         store = createKeyValueStore(driver.context());
-        context.restore(store.name(), driver.restoredEntries());
+        driver.restore(store.name(), driver.restoredEntries());
 
         assertEquals(3, driver.sizeOf(store));
 

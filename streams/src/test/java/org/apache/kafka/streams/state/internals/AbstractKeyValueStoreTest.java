@@ -22,11 +22,14 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.processor.ProcessorContext;
+import org.apache.kafka.streams.processor.internals.InternalProcessorContext;
+import org.apache.kafka.streams.processor.internals.ProcessorRecordContext;
 import org.apache.kafka.streams.processor.internals.testutil.LogCaptureAppender;
 import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.KeyValueStoreTestDriver;
-import org.apache.kafka.test.InternalMockProcessorContext;
+import org.apache.kafka.test.InternalProcessorContextMockBuilder;
+import org.apache.kafka.test.MockRecordCollector;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,28 +43,32 @@ import java.util.List;
 import java.util.Map;
 
 import static org.hamcrest.CoreMatchers.hasItem;
-import static org.hamcrest.core.IsEqual.equalTo;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.core.IsEqual.equalTo;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public abstract class AbstractKeyValueStoreTest {
 
     protected abstract <K, V> KeyValueStore<K, V> createKeyValueStore(final ProcessorContext context);
 
-    protected InternalMockProcessorContext context;
+    protected InternalProcessorContext context;
     protected KeyValueStore<Integer, String> store;
     protected KeyValueStoreTestDriver<Integer, String> driver;
 
     @Before
     public void before() {
         driver = KeyValueStoreTestDriver.create(Integer.class, String.class);
-        context = (InternalMockProcessorContext) driver.context();
-        context.setTime(10);
+        context = (InternalProcessorContext) driver.context();
+        setTimestamp(context, 10L);
         store = createKeyValueStore(context);
+    }
+
+    protected static void setTimestamp(final InternalProcessorContext context, final long timestamp) {
+        context.setRecordContext(new ProcessorRecordContext(timestamp, context.offset(), context.partition(), context.topic(), context.headers()));
     }
 
     @After
@@ -96,8 +103,8 @@ public abstract class AbstractKeyValueStoreTest {
             }
         };
 
-        context.setValueSerde(Serdes.serdeFrom(serializer, new StringDeserializer()));
-        store = createKeyValueStore(driver.context());
+        final InternalProcessorContext context = makeContextFromDriver(serializer);
+        store = createKeyValueStore(context);
 
         store.put(0, "zero");
         store.put(1, "one");
@@ -125,8 +132,8 @@ public abstract class AbstractKeyValueStoreTest {
             }
         };
 
-        context.setValueSerde(Serdes.serdeFrom(serializer, new StringDeserializer()));
-        store = createKeyValueStore(driver.context());
+        final InternalProcessorContext context = makeContextFromDriver(serializer);
+        store = createKeyValueStore(context);
 
         store.put(0, "zero");
         store.put(1, "one");
@@ -221,28 +228,6 @@ public abstract class AbstractKeyValueStoreTest {
     }
 
     @Test
-    public void testRestore() {
-        store.close();
-        // Add any entries that will be restored to any store
-        // that uses the driver's context ...
-        driver.addEntryToRestoreLog(0, "zero");
-        driver.addEntryToRestoreLog(1, "one");
-        driver.addEntryToRestoreLog(2, "two");
-        driver.addEntryToRestoreLog(3, "three");
-
-        // Create the store, which should register with the context and automatically
-        // receive the restore entries ...
-        store = createKeyValueStore(driver.context());
-        context.restore(store.name(), driver.restoredEntries());
-
-        // Verify that the store's contents were properly restored ...
-        assertEquals(0, driver.checkForRestoredEntries(store));
-
-        // and there are no other entries ...
-        assertEquals(4, driver.sizeOf(store));
-    }
-
-    @Test
     public void testRestoreWithDefaultSerdes() {
         store.close();
         // Add any entries that will be restored to any store
@@ -255,7 +240,7 @@ public abstract class AbstractKeyValueStoreTest {
         // Create the store, which should register with the context and automatically
         // receive the restore entries ...
         store = createKeyValueStore(driver.context());
-        context.restore(store.name(), driver.restoredEntries());
+        driver.restore(store.name(), driver.restoredEntries());
         // Verify that the store's contents were properly restored ...
         assertEquals(0, driver.checkForRestoredEntries(store));
 
@@ -419,5 +404,17 @@ public abstract class AbstractKeyValueStoreTest {
         assertThat(messages, hasItem("Returning empty iterator for fetch with invalid key range: from > to. "
             + "This may be due to serdes that don't preserve ordering when lexicographically comparing the serialized bytes. "
             + "Note that the built-in numerical serdes do not follow this for negative numbers"));
+    }
+
+    private InternalProcessorContext makeContextFromDriver(final Serializer<String> serializer) {
+        final InternalProcessorContext driverContext = (InternalProcessorContext) driver.context();
+        final InternalProcessorContext internalProcessorContext = new InternalProcessorContextMockBuilder()
+                .keySerde(driverContext.keySerde())
+                .valueSerde(Serdes.serdeFrom(serializer, new StringDeserializer()))
+                .cache(driverContext.getCache())
+                .build();
+        internalProcessorContext.setRecordContext(driverContext.recordContext());
+        return InternalProcessorContextMockBuilder
+            .withCollectorSupplier(internalProcessorContext, new MockRecordCollector(), AbstractKeyValueStoreTest.class);
     }
 }

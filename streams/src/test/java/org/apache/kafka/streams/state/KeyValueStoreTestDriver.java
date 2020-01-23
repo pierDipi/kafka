@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.streams.state;
 
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.MockProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.common.header.Headers;
@@ -30,18 +31,25 @@ import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.errors.DefaultProductionExceptionHandler;
 import org.apache.kafka.streams.processor.ProcessorContext;
 import org.apache.kafka.streams.processor.StateRestoreCallback;
+import org.apache.kafka.streams.processor.StateRestoreListener;
 import org.apache.kafka.streams.processor.StateStore;
 import org.apache.kafka.streams.processor.StreamPartitioner;
+import org.apache.kafka.streams.processor.internals.CompositeRestoreListener;
+import org.apache.kafka.streams.processor.internals.InternalProcessorContext;
+import org.apache.kafka.streams.processor.internals.RecordBatchingStateRestoreCallback;
 import org.apache.kafka.streams.processor.internals.RecordCollector;
 import org.apache.kafka.streams.processor.internals.RecordCollectorImpl;
 import org.apache.kafka.streams.state.internals.MeteredKeyValueStore;
 import org.apache.kafka.streams.state.internals.RocksDBKeyValueStoreTest;
 import org.apache.kafka.streams.state.internals.ThreadCache;
-import org.apache.kafka.test.InternalMockProcessorContext;
+import org.apache.kafka.test.InternalProcessorContextMockBuilder;
 import org.apache.kafka.test.MockTimestampExtractor;
 import org.apache.kafka.test.TestUtils;
+import org.easymock.Capture;
+import org.easymock.EasyMock;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -50,6 +58,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
+
+import static org.apache.kafka.streams.processor.internals.StateRestoreCallbackAdapter.adapt;
 
 /**
  * A component that provides a {@link #context() ProcessingContext} that can be supplied to a {@link KeyValueStore} so that
@@ -181,8 +191,9 @@ public class KeyValueStoreTestDriver<K, V> {
     private final Map<K, V> flushedEntries = new HashMap<>();
     private final Set<K> flushedRemovals = new HashSet<>();
     private final List<KeyValue<byte[], byte[]>> restorableEntries = new LinkedList<>();
+    private final Map<String, StateRestoreCallback> restoreFuncs = new HashMap<>();
 
-    private final InternalMockProcessorContext context;
+    private final InternalProcessorContext context;
     private final StateSerdes<K, V> stateSerdes;
 
     private KeyValueStoreTestDriver(final StateSerdes<K, V> serdes) {
@@ -240,24 +251,61 @@ public class KeyValueStoreTestDriver<K, V> {
         props.put(StreamsConfig.ROCKSDB_CONFIG_SETTER_CLASS_CONFIG, RocksDBKeyValueStoreTest.TheRocksDbConfigSetter.class);
         props.put(StreamsConfig.METRICS_RECORDING_LEVEL_CONFIG, "DEBUG");
 
-        context = new InternalMockProcessorContext(stateDir, serdes.keySerde(), serdes.valueSerde(), recordCollector, null) {
-            ThreadCache cache = new ThreadCache(new LogContext("testCache "), 1024 * 1024L, metrics());
+        final InternalProcessorContext internalProcessorContext = new InternalProcessorContextMockBuilder()
+                .stateDir(stateDir)
+                .keySerde(serdes.keySerde())
+                .valueSerde(serdes.valueSerde())
+                .buildWithoutReplaying();
 
-            @Override
-            public ThreadCache getCache() {
-                return cache;
+        EasyMock.expect(internalProcessorContext.appConfigs()).andReturn(new StreamsConfig(props).originals()).anyTimes();
+        Capture<String> prefix = Capture.newInstance();
+        EasyMock.expect(internalProcessorContext.appConfigsWithPrefix(EasyMock.capture(prefix)))
+                .andAnswer(() -> new StreamsConfig(props).originalsWithPrefix(prefix.getValue()))
+                .anyTimes();
+        final Capture<ThreadCache> cache = Capture.newInstance();
+        EasyMock.expect(internalProcessorContext.getCache()).andAnswer(() -> {
+            if (!cache.hasCaptured() || cache.getValue() == null) {
+                cache.setValue(new ThreadCache(new LogContext("testCache "), 1024 * 1024L, internalProcessorContext.metrics()));
             }
+            return cache.getValue();
+        }).anyTimes();
 
-            @Override
-            public Map<String, Object> appConfigs() {
-                return new StreamsConfig(props).originals();
-            }
+        final Capture<StateStore> stateStore = Capture.newInstance();
+        final Capture<StateRestoreCallback> callback = Capture.newInstance();
+        internalProcessorContext.register(EasyMock.capture(stateStore), EasyMock.capture(callback));
+        EasyMock.expectLastCall().andAnswer(() -> restoreFuncs.put(stateStore.getValue().name(), callback.getValue())).anyTimes();
+        EasyMock.replay(internalProcessorContext);
 
-            @Override
-            public Map<String, Object> appConfigsWithPrefix(final String prefix) {
-                return new StreamsConfig(props).originalsWithPrefix(prefix);
-            }
-        };
+        context = InternalProcessorContextMockBuilder
+                .withCollectorSupplier(internalProcessorContext, recordCollector, KeyValueStoreTestDriver.class);
+    }
+
+    public StateRestoreListener getRestoreListener(final String storeName) {
+        return getStateRestoreListener(restoreFuncs.get(storeName));
+    }
+
+    public void restore(final String storeName, final Iterable<KeyValue<byte[], byte[]>> changeLog) {
+        final RecordBatchingStateRestoreCallback restoreCallback = adapt(restoreFuncs.get(storeName));
+        final StateRestoreListener restoreListener = getRestoreListener(storeName);
+
+        restoreListener.onRestoreStart(null, storeName, 0L, 0L);
+
+        final List<ConsumerRecord<byte[], byte[]>> records = new ArrayList<>();
+        for (final KeyValue<byte[], byte[]> keyValue : changeLog) {
+            records.add(new ConsumerRecord<>("", 0, 0L, keyValue.key, keyValue.value));
+        }
+
+        restoreCallback.restoreBatch(records);
+
+        restoreListener.onRestoreEnd(null, storeName, 0L);
+    }
+
+    private StateRestoreListener getStateRestoreListener(final StateRestoreCallback restoreCallback) {
+        if (restoreCallback instanceof StateRestoreListener) {
+            return (StateRestoreListener) restoreCallback;
+        }
+
+        return CompositeRestoreListener.NO_OP_STATE_RESTORE_LISTENER;
     }
 
     private void recordFlushed(final K key, final V value) {
@@ -411,5 +459,6 @@ public class KeyValueStoreTestDriver<K, V> {
         restorableEntries.clear();
         flushedEntries.clear();
         flushedRemovals.clear();
+        restoreFuncs.clear();
     }
 }

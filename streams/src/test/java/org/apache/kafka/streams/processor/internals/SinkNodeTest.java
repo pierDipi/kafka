@@ -128,7 +128,7 @@ public class SinkNodeTest {
                 .valueSerde(serdes.valueSerde())
                 .build();
         context.setCurrentNode(new ProcessorNode<>("TESTING_NODE"));
-        return (ContextCollectorSupplier) Proxy.newProxyInstance(
+        return (InternalProcessorContext) Proxy.newProxyInstance(
             SinkNodeTest.class.getClassLoader(),
             new Class[]{ContextCollectorSupplier.class},
             (o, method, objects) -> {
