@@ -25,9 +25,11 @@ import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.streams.errors.DefaultProductionExceptionHandler;
 import org.apache.kafka.streams.errors.StreamsException;
 import org.apache.kafka.streams.state.StateSerdes;
-import org.apache.kafka.test.InternalMockProcessorContext;
+import org.apache.kafka.test.InternalProcessorContextMockBuilder;
 import org.junit.Before;
 import org.junit.Test;
+
+import java.lang.reflect.Proxy;
 
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.instanceOf;
@@ -36,7 +38,6 @@ import static org.junit.Assert.fail;
 
 public class SinkNodeTest {
     private final Serializer<byte[]> anySerializer = Serdes.ByteArray().serializer();
-    private final StateSerdes<Bytes, Bytes> anyStateSerde = StateSerdes.withBuiltinTypes("anyName", Bytes.class, Bytes.class);
     private final RecordCollector recordCollector =  new RecordCollectorImpl(
         null,
         new LogContext("sinknode-test "),
@@ -44,10 +45,7 @@ public class SinkNodeTest {
         new Metrics().sensor("dropped-records")
     );
 
-    private final InternalMockProcessorContext context = new InternalMockProcessorContext(
-        anyStateSerde,
-        recordCollector
-    );
+    private final InternalProcessorContext context = makeContext();
     private final SinkNode<byte[], byte[]> sink = new SinkNode<>("anyNodeName",
             new StaticTopicNameExtractor<>("any-output-topic"), anySerializer, anySerializer, null);
 
@@ -67,7 +65,7 @@ public class SinkNodeTest {
         final Bytes anyValue = new Bytes("any value".getBytes());
 
         // When/Then
-        context.setTime(-1); // ensures a negative timestamp is set for the record we send next
+        setTimestamp(context, -1); // ensures a negative timestamp is set for the record we send next
         try {
             illTypedSink.process(anyKey, anyValue);
             fail("Should have thrown StreamsException");
@@ -82,7 +80,7 @@ public class SinkNodeTest {
         final String valueOfDifferentTypeThanSerializer = "value with different type";
 
         // When/Then
-        context.setTime(0);
+        setTimestamp(context, 0);
         try {
             illTypedSink.process(keyOfDifferentTypeThanSerializer, valueOfDifferentTypeThanSerializer);
             fail("Should have thrown StreamsException");
@@ -96,7 +94,7 @@ public class SinkNodeTest {
         final String invalidValueToTriggerSerializerMismatch = "";
 
         // When/Then
-        context.setTime(1);
+        setTimestamp(context, 1);
         try {
             illTypedSink.process(null, invalidValueToTriggerSerializerMismatch);
             fail("Should have thrown StreamsException");
@@ -111,7 +109,7 @@ public class SinkNodeTest {
         final String invalidKeyToTriggerSerializerMismatch = "";
 
         // When/Then
-        context.setTime(1);
+        setTimestamp(context, 1);
         try {
             illTypedSink.process(invalidKeyToTriggerSerializerMismatch, null);
             fail("Should have thrown StreamsException");
@@ -119,6 +117,37 @@ public class SinkNodeTest {
             assertThat(e.getCause(), instanceOf(ClassCastException.class));
             assertThat(e.getMessage(), containsString("unknown because value is null"));
         }
+    }
+
+    private interface ContextCollectorSupplier extends InternalProcessorContext, RecordCollector.Supplier { }
+
+    private InternalProcessorContext makeContext() {
+        final StateSerdes<Bytes, Bytes> serdes = StateSerdes.withBuiltinTypes("anyName", Bytes.class, Bytes.class);
+        final InternalProcessorContext context = new InternalProcessorContextMockBuilder()
+                .keySerde(serdes.keySerde())
+                .valueSerde(serdes.valueSerde())
+                .build();
+        context.setCurrentNode(new ProcessorNode<>("TESTING_NODE"));
+        return (ContextCollectorSupplier) Proxy.newProxyInstance(
+            SinkNodeTest.class.getClassLoader(),
+            new Class[]{ContextCollectorSupplier.class},
+            (o, method, objects) -> {
+                if (method.getName().equals("recordCollector")) {
+                    return recordCollector;
+                }
+                return InternalProcessorContext.class.getMethod(method.getName(), method.getParameterTypes())
+                        .invoke(context, objects);
+            });
+    }
+
+    private static void setTimestamp(final InternalProcessorContext context, final long timestamp) {
+        context.setRecordContext(new ProcessorRecordContext(
+                timestamp,
+                context.offset(),
+                context.partition(),
+                context.topic(),
+                context.headers()
+        ));
     }
 
 }
