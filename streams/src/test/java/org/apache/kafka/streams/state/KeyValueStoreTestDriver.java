@@ -258,7 +258,7 @@ public class KeyValueStoreTestDriver<K, V> {
                 .buildWithoutReplaying();
 
         EasyMock.expect(internalProcessorContext.appConfigs()).andReturn(new StreamsConfig(props).originals()).anyTimes();
-        Capture<String> prefix = Capture.newInstance();
+        final Capture<String> prefix = Capture.newInstance();
         EasyMock.expect(internalProcessorContext.appConfigsWithPrefix(EasyMock.capture(prefix)))
                 .andAnswer(() -> new StreamsConfig(props).originalsWithPrefix(prefix.getValue()))
                 .anyTimes();

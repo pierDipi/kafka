@@ -417,7 +417,7 @@ public abstract class AbstractRocksDBSegmentedBytesStoreTest<S extends Segment> 
         }
     }
 
-    private StateRestoreListener getRestoreListener(String name) {
+    private StateRestoreListener getRestoreListener(final String name) {
         final StateRestoreCallback restoreCallback = restoreFuncs.get(name);
         if (restoreCallback instanceof StateRestoreListener) {
             return (StateRestoreListener) restoreCallback;
