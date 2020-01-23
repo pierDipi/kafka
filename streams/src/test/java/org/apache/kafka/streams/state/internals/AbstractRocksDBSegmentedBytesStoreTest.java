@@ -28,15 +28,22 @@ import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.kstream.Window;
 import org.apache.kafka.streams.kstream.Windowed;
 import org.apache.kafka.streams.kstream.internals.SessionWindow;
+import org.apache.kafka.streams.processor.StateRestoreCallback;
 import org.apache.kafka.streams.processor.StateRestoreListener;
+import org.apache.kafka.streams.processor.StateStore;
+import org.apache.kafka.streams.processor.internals.CompositeRestoreListener;
+import org.apache.kafka.streams.processor.internals.InternalProcessorContext;
 import org.apache.kafka.streams.processor.internals.MockStreamsMetrics;
 import org.apache.kafka.streams.processor.internals.testutil.LogCaptureAppender;
 import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.StateSerdes;
 import org.apache.kafka.test.InternalMockProcessorContext;
+import org.apache.kafka.test.InternalProcessorContextMockBuilder;
 import org.apache.kafka.test.MockRecordCollector;
 import org.apache.kafka.test.StreamsTestUtils;
 import org.apache.kafka.test.TestUtils;
+import org.easymock.Capture;
+import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -54,6 +61,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -76,11 +84,12 @@ import static org.junit.Assert.assertTrue;
 public abstract class AbstractRocksDBSegmentedBytesStoreTest<S extends Segment> {
 
     private final long windowSizeForTimeWindow = 500;
-    private InternalMockProcessorContext context;
+    private InternalProcessorContext context;
     private AbstractRocksDBSegmentedBytesStore<S> bytesStore;
     private File stateDir;
     private final Window[] windows = new Window[4];
     private Window nextSegmentWindow;
+    private Map<String, StateRestoreCallback> restoreFuncs;
 
     final long retention = 1000;
     final long segmentInterval = 60_000L;
@@ -122,13 +131,19 @@ public abstract class AbstractRocksDBSegmentedBytesStoreTest<S extends Segment> 
         bytesStore = getBytesStore();
 
         stateDir = TestUtils.tempDirectory();
-        context = new InternalMockProcessorContext(
-            stateDir,
-            Serdes.String(),
-            Serdes.Long(),
-            new MockRecordCollector(),
-            new ThreadCache(new LogContext("testCache "), 0, new MockStreamsMetrics(new Metrics()))
-        );
+        final InternalProcessorContext wrappedContext = new InternalProcessorContextMockBuilder()
+                .stateDir(stateDir)
+                .valueSerde(Serdes.Long())
+                .cache(new ThreadCache(new LogContext("testCache "), 0, new MockStreamsMetrics(new Metrics())))
+                .buildWithoutReplaying();
+        restoreFuncs = new HashMap<>();
+        final Capture<StateStore> stateStore = Capture.newInstance();
+        final Capture<StateRestoreCallback> callback = Capture.newInstance();
+        wrappedContext.register(EasyMock.capture(stateStore), EasyMock.capture(callback));
+        EasyMock.expectLastCall().andAnswer(() -> restoreFuncs.put(stateStore.getValue().name(), callback.getValue())).anyTimes();
+        EasyMock.replay(wrappedContext);
+        context = InternalProcessorContextMockBuilder
+                .withCollectorSupplier(wrappedContext, new MockRecordCollector(), AbstractRocksDBSegmentedBytesStoreTest.class);
         bytesStore.init(context, bytesStore);
     }
 
@@ -278,7 +293,7 @@ public abstract class AbstractRocksDBSegmentedBytesStoreTest<S extends Segment> 
 
         final String firstSegmentName = segments.segmentName(0);
         final String[] nameParts = firstSegmentName.split("\\.");
-        final Long segmentId = Long.parseLong(nameParts[1]);
+        final long segmentId = Long.parseLong(nameParts[1]);
         final SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmm");
         formatter.setTimeZone(new SimpleTimeZone(0, "UTC"));
         final String formatted = formatter.format(new Date(segmentId * segmentInterval));
@@ -388,7 +403,7 @@ public abstract class AbstractRocksDBSegmentedBytesStoreTest<S extends Segment> 
         bytesStore.put(serializeKey(new Windowed<>(key, windows[3])), serializeValue(100L));
         assertEquals(2, bytesStore.getSegments().size());
 
-        final StateRestoreListener restoreListener = context.getRestoreListener(bytesStore.name());
+        final StateRestoreListener restoreListener = getRestoreListener(bytesStore.name());
 
         restoreListener.onRestoreStart(null, bytesStore.name(), 0L, 0L);
 
@@ -400,6 +415,14 @@ public abstract class AbstractRocksDBSegmentedBytesStoreTest<S extends Segment> 
         for (final S segment : bytesStore.getSegments()) {
             assertThat(getOptions(segment).level0FileNumCompactionTrigger(), equalTo(4));
         }
+    }
+
+    private StateRestoreListener getRestoreListener(String name) {
+        final StateRestoreCallback restoreCallback = restoreFuncs.get(name);
+        if (restoreCallback instanceof StateRestoreListener) {
+            return (StateRestoreListener) restoreCallback;
+        }
+        return CompositeRestoreListener.NO_OP_STATE_RESTORE_LISTENER;
     }
 
     @Test
