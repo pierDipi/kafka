@@ -90,11 +90,11 @@ public class TimeOrderedKeyValueBufferTest<B extends TimeOrderedKeyValueBuffer<S
     public static Collection<Object[]> parameters() {
         return singletonList(
                 new Object[]{
-                        "in-memory buffer",
-                        (Function<String, InMemoryTimeOrderedKeyValueBuffer<String, String>>) name ->
-                                new InMemoryTimeOrderedKeyValueBuffer
-                                        .Builder<>(name, Serdes.String(), Serdes.serdeFrom(new NullRejectingStringSerializer(), new StringDeserializer()))
-                                        .build()
+                    "in-memory buffer",
+                    (Function<String, InMemoryTimeOrderedKeyValueBuffer<String, String>>) name ->
+                        new InMemoryTimeOrderedKeyValueBuffer
+                            .Builder<>(name, Serdes.String(), Serdes.serdeFrom(new NullRejectingStringSerializer(), new StringDeserializer()))
+                            .build()
                 }
         );
     }
@@ -120,15 +120,15 @@ public class TimeOrderedKeyValueBufferTest<B extends TimeOrderedKeyValueBuffer<S
     private static ContextCollectorSupplier makeContext(final InternalProcessorContext context) {
         final RecordCollector recordCollector = new MockRecordCollector();
         return (ContextCollectorSupplier) Proxy.newProxyInstance(
-                TimeOrderedKeyValueBufferTest.class.getClassLoader(),
-                new Class[]{ContextCollectorSupplier.class},
-                (o, method, objects) -> {
-                    if (method.getName().equals("recordCollector")) {
-                        return recordCollector;
-                    }
-                    return InternalProcessorContext.class.getMethod(method.getName(), method.getParameterTypes())
-                            .invoke(context, objects);
-                });
+            TimeOrderedKeyValueBufferTest.class.getClassLoader(),
+            new Class[]{ContextCollectorSupplier.class},
+            (o, method, objects) -> {
+                if (method.getName().equals("recordCollector")) {
+                    return recordCollector;
+                }
+                return InternalProcessorContext.class.getMethod(method.getName(), method.getParameterTypes())
+                        .invoke(context, objects);
+            });
     }
 
 

@@ -56,7 +56,7 @@ import static org.apache.kafka.streams.kstream.Suppressed.BufferConfig.unbounded
 import static org.apache.kafka.streams.kstream.Suppressed.untilTimeLimit;
 import static org.apache.kafka.streams.kstream.Suppressed.untilWindowCloses;
 import static org.apache.kafka.streams.kstream.WindowedSerdes.sessionWindowedSerdeFrom;
-import static org.apache.kafka.streams.processor.MockProcessorContext.*;
+import static org.apache.kafka.streams.processor.MockProcessorContext.CapturedForward;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -400,7 +400,7 @@ public class KTableSuppressProcessorTest {
         assertThat(e.getMessage(), containsString("buffer exceeded its max capacity"));
     }
 
-    private static <K, V> void assertExactlyOneForwarded(Harness<K, V> harness, long timestamp, K key, Change<V> value) {
+    private static <K, V> void assertExactlyOneForwarded(final Harness<K, V> harness, final long timestamp, final K key, final Change<V> value) {
         assertThat(harness.forwarded(), hasSize(1));
         final CapturedForward capturedForward = harness.forwarded().get(0);
         assertThat(capturedForward.keyValue(), is(new KeyValue<>(key, value)));
