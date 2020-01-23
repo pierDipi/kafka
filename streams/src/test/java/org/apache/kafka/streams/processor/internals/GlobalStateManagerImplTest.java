@@ -36,7 +36,7 @@ import org.apache.kafka.streams.processor.StateStore;
 import org.apache.kafka.streams.state.TimestampedBytesStore;
 import org.apache.kafka.streams.state.internals.OffsetCheckpoint;
 import org.apache.kafka.streams.state.internals.WrappedStateStore;
-import org.apache.kafka.test.InternalMockProcessorContext;
+import org.apache.kafka.test.InternalProcessorContextMockBuilder;
 import org.apache.kafka.test.MockStateRestoreListener;
 import org.apache.kafka.test.NoOpReadOnlyStore;
 import org.apache.kafka.test.TestUtils;
@@ -72,7 +72,6 @@ import static org.junit.Assert.fail;
 
 public class GlobalStateManagerImplTest {
 
-
     private final MockTime time = new MockTime();
     private final TheStateRestoreCallback stateRestoreCallback = new TheStateRestoreCallback();
     private final MockStateRestoreListener stateRestoreListener = new MockStateRestoreListener();
@@ -91,7 +90,7 @@ public class GlobalStateManagerImplTest {
     private MockConsumer<byte[], byte[]> consumer;
     private File checkpointFile;
     private ProcessorTopology topology;
-    private InternalMockProcessorContext processorContext;
+    private InternalProcessorContext processorContext;
 
     static ProcessorTopology withGlobalStores(final List<StateStore> stateStores,
                                               final Map<String, String> storeToChangelogTopic) {
@@ -136,7 +135,10 @@ public class GlobalStateManagerImplTest {
             stateDirectory,
             stateRestoreListener,
             streamsConfig);
-        processorContext = new InternalMockProcessorContext(stateDirectory.globalStateDir(), streamsConfig);
+        processorContext = new InternalProcessorContextMockBuilder()
+                .stateDir(stateDirectory.globalStateDir())
+                .appConfigs(streamsConfig)
+                .build();
         stateManager.setGlobalProcessorContext(processorContext);
         checkpointFile = new File(stateManager.baseDir(), StateManagerUtil.CHECKPOINT_FILE_NAME);
     }
